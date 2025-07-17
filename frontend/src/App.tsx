@@ -39,6 +39,25 @@ function App() {
     fetchVideos()
   }
 
+  const handleDelete = async (video_id: string) => {
+    await fetch(`http://localhost:8000/videos/${video_id}`, {
+      method: 'DELETE',
+    })
+    fetchVideos()
+  }
+
+  const handleUpdate = async (video_id: string, newName: string) => {
+    await fetch(`http://localhost:8000/videos/${video_id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ video_name: newName }),
+    })
+    fetchVideos()
+  }
+
+  const [editId, setEditId] = useState<string | null>(null)
+  const [editName, setEditName] = useState<string>("")
+
   return (
     <>
       <div>
@@ -70,15 +89,36 @@ function App() {
                 <th style={{ border: '1px solid #ccc', padding: 4 }}>Name</th>
                 <th style={{ border: '1px solid #ccc', padding: 4 }}>Created At</th>
                 <th style={{ border: '1px solid #ccc', padding: 4 }}>Updated At</th>
+                <th style={{ border: '1px solid #ccc', padding: 4 }}>Actions</th>
               </tr>
             </thead>
             <tbody>
               {videos.map((video) => (
                 <tr key={video.video_id}>
                   <td style={{ border: '1px solid #ccc', padding: 4 }}>{video.video_id}</td>
-                  <td style={{ border: '1px solid #ccc', padding: 4 }}>{video.video_name}</td>
+                  <td style={{ border: '1px solid #ccc', padding: 4 }}>
+                    {editId === video.video_id ? (
+                      <>
+                        <input
+                          value={editName}
+                          onChange={e => setEditName(e.target.value)}
+                          style={{ width: 120 }}
+                        />
+                        <button onClick={() => { handleUpdate(video.video_id, editName); setEditId(null); }}>Save</button>
+                        <button onClick={() => setEditId(null)}>Cancel</button>
+                      </>
+                    ) : (
+                      <>
+                        {video.video_name}
+                        <button style={{ marginLeft: 8 }} onClick={() => { setEditId(video.video_id); setEditName(video.video_name); }}>Edit</button>
+                      </>
+                    )}
+                  </td>
                   <td style={{ border: '1px solid #ccc', padding: 4 }}>{video.created_at}</td>
                   <td style={{ border: '1px solid #ccc', padding: 4 }}>{video.updated_at}</td>
+                  <td style={{ border: '1px solid #ccc', padding: 4 }}>
+                    <button style={{ color: 'red' }} onClick={() => handleDelete(video.video_id)}>Delete</button>
+                  </td>
                 </tr>
               ))}
             </tbody>

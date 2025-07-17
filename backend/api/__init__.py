@@ -1,4 +1,4 @@
-from fastapi import APIRouter, UploadFile, File
+from fastapi import APIRouter, UploadFile, File, HTTPException, Body
 from fastapi.responses import JSONResponse
 from db import VideoDB
 from video import VideoStorage
@@ -25,3 +25,22 @@ async def upload_video(file: UploadFile = File(...)):
 def list_videos():
     videos = video_db.list_videos()
     return JSONResponse(videos) 
+
+@router.delete("/videos/{video_id}")
+def delete_video(video_id: str):
+
+    results = video_db.collection.get(ids=[video_id])
+    if not results['metadatas']:
+        raise HTTPException(status_code=404, detail="Video not found")
+    save_path = results['documents'][0]
+    video_db.delete_video(video_id)
+    video_storage.delete_video_file(save_path)
+    return JSONResponse({"status": "deleted", "video_id": video_id})
+
+@router.put("/videos/{video_id}")
+def update_video(video_id: str, video_name: str = Body(..., embed=True)):
+    try:
+        video_db.update_video(video_id, video_name=video_name)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Video not found")
+    return JSONResponse({"status": "updated", "video_id": video_id, "video_name": video_name}) 

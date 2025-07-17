@@ -31,4 +31,13 @@ class VideoStorage:
             'file_name': file.filename,
             'created_at': now,
             'updated_at': now
-        } 
+        }
+
+    def delete_video_file(self, save_path):
+        if os.path.exists(save_path):
+            os.remove(save_path)
+            # Remove the folder if empty
+            folder = os.path.dirname(save_path)
+            if os.path.isdir(folder) and not os.listdir(folder):
+                os.rmdir(folder)
+

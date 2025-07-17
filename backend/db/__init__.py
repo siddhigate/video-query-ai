@@ -32,4 +32,23 @@ class VideoDB:
                 'updated_at': meta.get('updated_at'),
             }
             videos.append(video)
-        return videos 
+        return videos
+
+    def delete_video(self, video_id):
+        self.collection.delete(ids=[video_id])
+
+    def update_video(self, video_id, **kwargs):
+        
+        results = self.collection.get(ids=[video_id])
+        if not results['metadatas']:
+            raise ValueError('Video not found')
+        meta = results['metadatas'][0]
+        
+        meta.update(kwargs)
+
+        self.collection.delete(ids=[video_id])
+        self.collection.add(
+            documents=results['documents'],
+            metadatas=[meta],
+            ids=[video_id]
+        ) 
