@@ -1,7 +1,7 @@
 import os
 from datetime import datetime
 
-DATA_DIR = ".data"
+DATA_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".data"))
 UPLOAD_DIR = os.path.join(DATA_DIR, "uploaded_videos")
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 

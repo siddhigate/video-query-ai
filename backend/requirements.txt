@@ -4,3 +4,5 @@ python-multipart
 chromadb 
 requests
 redis 
+pydantic-settings
+pydantic 

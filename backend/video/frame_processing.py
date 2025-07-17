@@ -8,14 +8,15 @@ import requests
 import chromadb
 from chromadb.utils import embedding_functions
 import asyncio
-from .valkey_pubsub import publish_progress, add_frame_in_process, add_frame_done
+from ..streaming.video_progress_ws_manager import VideoProgressWebSocketManager
+from ..streaming.types import FrameProcessingEvent, FrameProcessedEvent, FrameErrorEvent
 import base64
 import json
-from db import VideoDB
+from ..db import VideoDB
 from .utils import get_frame_url
+import json as pyjson
 
-
-DATA_DIR = ".data"
+DATA_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".data"))
 UPLOAD_DIR = os.path.join(DATA_DIR, "uploaded_videos")
 CHROMA_DIR = os.path.join(DATA_DIR, "chromadb")
 FRAMES_DIR = os.path.join(DATA_DIR, "frames")
@@ -27,6 +28,9 @@ logging.basicConfig(level=logging.INFO)
 # ChromaDB setup
 client = chromadb.PersistentClient(path=CHROMA_DIR)
 collection = client.get_or_create_collection("video_frames")
+
+VALKEY_URL = "redis://localhost:6379"
+video_progress_ws_manager = VideoProgressWebSocketManager()
 
 def get_embedding(text: str) -> List[float]:
     
@@ -57,7 +61,6 @@ def generate_description(frame_path: str) -> str:
 
 def get_video_fps_and_duration(video_path: str):
     """Return (fps, duration) for the video using ffprobe."""
-    import json as pyjson
     cmd = [
         'ffprobe', '-v', 'error', '-select_streams', 'v:0',
         '-show_entries', 'stream=avg_frame_rate,duration',
@@ -86,13 +89,18 @@ def extract_frames(video_path: str, output_dir: str, fps: int = 1) -> List[str]:
 
 def process_frame(frame_path: str, video_id: str, frame_idx: int, timestamp: float) -> Dict:
     logging.info(f"Processing frame {frame_idx}: {frame_path}")
-    from .valkey_pubsub import publish_progress_sync
     frame_url = get_frame_url(video_id, frame_idx)
-    add_frame_in_process(video_id, frame_idx)
-    publish_progress_sync(video_id, json.dumps({
-        "type": "frame_processing",
-        "data": {"frame_idx": frame_idx, "frame_url": frame_url, "timestamp": timestamp}
-    }))
+    video_progress_ws_manager.add_frame_in_process(video_id, frame_idx)
+    # Fetch total_frames from VideoDB
+    video_db = VideoDB()
+    _, total_frames = video_db.get_processing_state(video_id)
+    event = FrameProcessingEvent(data={
+        "frame_idx": frame_idx,
+        "frame_url": frame_url,
+        "timestamp": timestamp,
+        "total_frames": total_frames
+    })
+    video_progress_ws_manager.publish_progress_sync(video_id, event.json())
     description = generate_description(frame_path)
     vector = get_embedding(description)
     metadata = {
@@ -108,16 +116,18 @@ def process_frame(frame_path: str, video_id: str, frame_idx: int, timestamp: flo
         ids=[f"{video_id}_frame_{frame_idx}"]
     )
     logging.info(f"Stored vector for frame {frame_idx}")
-    add_frame_done(video_id, frame_idx)
-    publish_progress_sync(video_id, json.dumps({
-        "type": "frame_processed",
-        "data": {"frame_idx": frame_idx, "frame_url": frame_url, "description": description, "timestamp": timestamp}
-    }))
+    video_progress_ws_manager.add_frame_done(video_id, frame_idx)
+    event = FrameProcessedEvent(data={
+        "frame_idx": frame_idx,
+        "frame_url": frame_url,
+        "description": description,
+        "timestamp": timestamp,
+        "total_frames": total_frames
+    })
+    video_progress_ws_manager.publish_progress_sync(video_id, event.json())
     return metadata
 
 def process_video_frames(video_id: str, video_path: str, fps: int = 1, max_workers: int = 4):
-    import json
-    from .valkey_pubsub import publish_progress_sync
     video_db = VideoDB()
     frame_output_dir = os.path.join(FRAMES_DIR, video_id)
     # Get FPS and duration
@@ -126,7 +136,8 @@ def process_video_frames(video_id: str, video_path: str, fps: int = 1, max_worke
     logging.info(f"Extracted {len(frames)} frames from {video_path}")
     # Update ChromaDB with frame count and processing state
     video_db.update_processing_state(video_id, processing_state='processing', frame_count=len(frames))
-    publish_progress_sync(video_id, json.dumps({
+    # Send frames_extracted event as raw dict for now
+    video_progress_ws_manager.publish_progress_sync(video_id, json.dumps({
         "type": "frames_extracted",
         "data": {"frame_count": len(frames), "video_id": video_id}
     }))
@@ -145,12 +156,11 @@ def process_video_frames(video_id: str, video_path: str, fps: int = 1, max_worke
                 results.append(result)
             except Exception as e:
                 logging.error(f"Error processing frame {idx}: {e}")
-                publish_progress_sync(video_id, json.dumps({
-                    "type": "frame_error",
-                    "data": {"frame_idx": idx, "error": str(e)}
-                }))
+                event = FrameErrorEvent(data={"frame_idx": idx, "error": str(e)})
+                video_progress_ws_manager.publish_progress_sync(video_id, event.json())
     video_db.update_processing_state(video_id, processing_state='success')
-    publish_progress_sync(video_id, json.dumps({
+    # Send all_frames_processed event as raw dict for now
+    video_progress_ws_manager.publish_progress_sync(video_id, json.dumps({
         "type": "all_frames_processed",
         "data": {"video_id": video_id}
     }))

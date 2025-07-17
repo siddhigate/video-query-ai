@@ -1,7 +1,7 @@
 import os
 import chromadb
 
-DATA_DIR = ".data"
+DATA_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".data"))
 CHROMA_DIR = os.path.join(DATA_DIR, "chromadb")
 
 class VideoDB:

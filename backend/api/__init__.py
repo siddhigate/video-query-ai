@@ -1,38 +1,24 @@
-from fastapi import APIRouter, UploadFile, File, HTTPException, Body, BackgroundTasks, WebSocket, WebSocketDisconnect, Query
+from fastapi import APIRouter, UploadFile, File, HTTPException, Body, BackgroundTasks, WebSocket, WebSocketDisconnect, Query, Request
 from fastapi.responses import JSONResponse
-from db import VideoDB
-from video import VideoStorage
-from video.frame_processing import process_video_frames
+from ..db import VideoDB
+from ..video import VideoStorage
+from ..video.frame_processing import process_video_frames, FRAMES_DIR, collection as frame_collection
 import asyncio
 import redis.asyncio as aioredis
 import shutil
 import os
-from video.frame_processing import FRAMES_DIR, collection as frame_collection
 from chromadb.utils import embedding_functions
 import json
-from video.valkey_pubsub import get_progress_state
+from ..streaming.video_progress_ws_manager import VideoProgressWebSocketManager
+from ..streaming.types import ProgressStateData, ProgressStateEvent
 
-class WebSocketManager:
-    def __init__(self):
-        self.active_connections = {}
-    async def connect(self, video_id, websocket):
-        await websocket.accept()
-        self.active_connections[video_id] = websocket
-    def disconnect(self, video_id):
-        if video_id in self.active_connections:
-            del self.active_connections[video_id]
-    async def send_json(self, video_id, data):
-        ws = self.active_connections.get(video_id)
-        if ws:
-            await ws.send_text(json.dumps(data))
-
-ws_manager = WebSocketManager()
+VALKEY_URL = "redis://localhost:6379"  # Adjust as needed
+video_progress_ws_manager = VideoProgressWebSocketManager()
 
 router = APIRouter()
 video_db = VideoDB()
 video_storage = VideoStorage()
 
-VALKEY_URL = "redis://localhost:6379"  # Adjust as needed
 
 @router.post("/upload")
 async def upload_video(file: UploadFile = File(...), background_tasks: BackgroundTasks = None):
@@ -76,7 +62,7 @@ def delete_video(video_id: str):
     frame_collection.delete(where={"video_id": video_id})
     return JSONResponse({"status": "deleted", "video_id": video_id})
 
-@router.put("/videos/{video_id}")
+@router.patch("/videos/{video_id}")
 def update_video(video_id: str, video_name: str = Body(..., embed=True)):
     try:
         video_db.update_video(video_id, video_name=video_name)
@@ -86,48 +72,47 @@ def update_video(video_id: str, video_name: str = Body(..., embed=True)):
 
 @router.websocket("/ws/progress/{video_id}")
 async def websocket_progress(websocket: WebSocket, video_id: str):
-    await ws_manager.connect(video_id, websocket)
-    redis = aioredis.from_url(VALKEY_URL)
-    pubsub = redis.pubsub()
-    channel = f"progress:{video_id}"
-    await pubsub.subscribe(channel)
-    try:
-        while True:
-            message = await pubsub.get_message(ignore_subscribe_messages=True, timeout=10.0)
-            if message and message["type"] == "message":
-                await websocket.send_text(message["data"].decode())
-            # Check for frontend request for progress
-            try:
-                data = await asyncio.wait_for(websocket.receive_text(), timeout=0.1)
-                if data:
-                    try:
-                        msg = json.loads(data)
-                        if msg.get("type") == "get_progress":
-                            progress = get_progress_state(video_id)
-                            await ws_manager.send_json(video_id, {"type": "progress_state", "data": progress})
-                    except Exception:
-                        pass
-            except asyncio.TimeoutError:
-                pass
-            await asyncio.sleep(0.1)
-    except WebSocketDisconnect:
-        ws_manager.disconnect(video_id)
-    finally:
-        await pubsub.unsubscribe(channel)
-        await pubsub.close()
-        await redis.close() 
+    print(f"[WebSocket] New connection for video_id={video_id}")
+    async def on_receive(data):
+        try:
+            print(f"[WebSocket] Received data for video_id={video_id}: {data}")
+            msg = json.loads(data)
+            if msg.get("type") == "get_progress":
+                print(f"[WebSocket] Handling get_progress for video_id={video_id}")
+                progress = video_progress_ws_manager.get_progress_state(video_id)
+                print(f"[WebSocket] Progress state for video_id={video_id}: {progress}")
+                extraction_in_progress = (progress.get('total_frames', 0) == 0)
+                progress_data = ProgressStateData(**progress)
+                event = ProgressStateEvent(type="progress_state", data=progress_data)
+                event_dict = event.dict()
+                event_dict['extraction_in_progress'] = extraction_in_progress
+                print(f"[WebSocket] Sending ProgressStateEvent for video_id={video_id}: {event_dict}")
+                await video_progress_ws_manager.send_json(video_id, event_dict)
+                print(f"[WebSocket] Sent progress_state for video_id={video_id}")
+        except Exception as e:
+            print(f"[WebSocket] Error in on_receive for video_id={video_id}: {e}")
+    await video_progress_ws_manager.handle_websocket_with_pubsub(
+        key=video_id,
+        websocket=websocket,
+        channel=f"progress:{video_id}",
+        on_receive=on_receive
+    )
 
 @router.post("/search")
-def search_frames(query: str = Query(...)):
-    # Vectorize the query
+async def search_frames(request: Request):
+    data = await request.json() if request.method == 'POST' else {}
+    query = data.get('query')
+    video_ids = data.get('video_ids')
     ef = embedding_functions.DefaultEmbeddingFunction()
     query_vec = ef([query])[0]
-    # Search ChromaDB for similar frames
-    results = frame_collection.query(
-        query_embeddings=[query_vec],
-        n_results=10,
-        include=["metadatas"]
-    )
+    chroma_query = {
+        'query_embeddings': [query_vec],
+        'n_results': 10,
+        'include': ["metadatas"]
+    }
+    if video_ids:
+        chroma_query['where'] = {'video_id': {'$in': video_ids}}
+    results = frame_collection.query(**chroma_query)
     matches = []
     for meta in results.get("metadatas", [[]])[0]:
         matches.append({
