@@ -1,6 +1,7 @@
 // api/index.ts
 
-const API_BASE = 'http://localhost:8000';
+const API_BASE = 'http://localhost:8000/api';
+export const STATIC_BASE = 'http://localhost:8000/static';
 
 export async function getVideos() {
   const res = await fetch(`${API_BASE}/videos`);

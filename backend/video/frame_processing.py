@@ -10,6 +10,7 @@ from chromadb.utils import embedding_functions
 import asyncio
 from .valkey_pubsub import publish_progress
 import base64
+import json
 
 
 DATA_DIR = ".data"
@@ -32,7 +33,6 @@ def get_embedding(text: str) -> List[float]:
 
 # LLaVA (Ollama) description generation
 def generate_description(frame_path: str) -> str:
-    import json
     with open(frame_path, "rb") as f:
         img_b64 = base64.b64encode(f.read()).decode()
     payload = {
@@ -53,6 +53,11 @@ def generate_description(frame_path: str) -> str:
                 continue
     return description.strip()
 
+def get_frame_url(video_id: str, frame_idx: int) -> str:
+    # Frame files are named frame_00001.jpg, etc.
+    frame_name = f"frame_{frame_idx+1:05d}.jpg"
+    return f"/frames/{video_id}/{frame_name}"
+
 def extract_frames(video_path: str, output_dir: str, fps: int = 1) -> List[str]:
     os.makedirs(output_dir, exist_ok=True)
     frame_pattern = os.path.join(output_dir, "frame_%05d.jpg")
@@ -67,8 +72,13 @@ def extract_frames(video_path: str, output_dir: str, fps: int = 1) -> List[str]:
 
 def process_frame(frame_path: str, video_id: str, frame_idx: int) -> Dict:
     logging.info(f"Processing frame {frame_idx}: {frame_path}")
-    
-    asyncio.run(publish_progress(video_id, f"Processing frame {frame_idx}"))
+    # Publish start of frame processing (blurred)
+    from .valkey_pubsub import publish_progress_sync
+    frame_url = get_frame_url(video_id, frame_idx)
+    publish_progress_sync(video_id, json.dumps({
+        "type": "frame_processing",
+        "data": {"frame_idx": frame_idx, "frame_url": frame_url}
+    }))
     description = generate_description(frame_path)
     vector = get_embedding(description)
     metadata = {
@@ -83,16 +93,23 @@ def process_frame(frame_path: str, video_id: str, frame_idx: int) -> Dict:
         ids=[f"{video_id}_frame_{frame_idx}"]
     )
     logging.info(f"Stored vector for frame {frame_idx}")
-    
-    asyncio.run(publish_progress(video_id, f"Completed frame {frame_idx}"))
+    # Publish completion of frame processing (unblurred)
+    publish_progress_sync(video_id, json.dumps({
+        "type": "frame_processed",
+        "data": {"frame_idx": frame_idx, "frame_url": frame_url, "description": description}
+    }))
     return metadata
 
 def process_video_frames(video_id: str, video_path: str, fps: int = 1, max_workers: int = 4):
+    from .valkey_pubsub import publish_progress_sync
     frame_output_dir = os.path.join(FRAMES_DIR, video_id)
     frames = extract_frames(video_path, frame_output_dir, fps=fps)
     logging.info(f"Extracted {len(frames)} frames from {video_path}")
-   
-    asyncio.run(publish_progress(video_id, f"Extracted {len(frames)} frames"))
+    # Publish total frame count
+    publish_progress_sync(video_id, json.dumps({
+        "type": "frames_extracted",
+        "data": {"frame_count": len(frames), "video_id": video_id}
+    }))
     results = []
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         future_to_idx = {
@@ -106,6 +123,12 @@ def process_video_frames(video_id: str, video_path: str, fps: int = 1, max_worke
                 results.append(result)
             except Exception as e:
                 logging.error(f"Error processing frame {idx}: {e}")
-                asyncio.run(publish_progress(video_id, f"Error processing frame {idx}: {e}"))
-    asyncio.run(publish_progress(video_id, "Processing complete"))
+                publish_progress_sync(video_id, json.dumps({
+                    "type": "frame_error",
+                    "data": {"frame_idx": idx, "error": str(e)}
+                }))
+    publish_progress_sync(video_id, json.dumps({
+        "type": "all_frames_processed",
+        "data": {"video_id": video_id}
+    }))
     return results 
