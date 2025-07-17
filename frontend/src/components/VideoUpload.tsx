@@ -1,9 +1,10 @@
 import React, { useRef, useState } from 'react';
 import { uploadVideo } from '../api';
 import VideoProgressFrames from './VideoProgressFrames';
+import { useVideoContext } from '../context/VideoContext';
 
 type VideoUploadProps = {
-  onUpload: () => void;
+  onUpload: (videoId: string) => void;
 };
 
 const VideoUpload: React.FC<VideoUploadProps> = ({ onUpload }) => {
@@ -15,6 +16,7 @@ const VideoUpload: React.FC<VideoUploadProps> = ({ onUpload }) => {
   const [videoId, setVideoId] = useState<string | null>(null);
   const [toast, setToast] = useState('');
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const { state, dispatch } = useVideoContext();
 
   const handleUpload = async () => {
     const file = fileInputRef.current?.files?.[0];
@@ -29,7 +31,22 @@ const VideoUpload: React.FC<VideoUploadProps> = ({ onUpload }) => {
     try {
       const res = await uploadVideo(file);
       setDone(true);
-      onUpload();
+      // Optimistically add to sidebar
+      dispatch({
+        type: 'SET_VIDEOS',
+        videos: [
+          ...state.videos,
+          {
+            video_id: res.video_id,
+            video_name: file.name,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+            processing_state: 'processing',
+            frame_count: 0
+          }
+        ]
+      });
+      onUpload(res.video_id); // pass videoId to parent
       if (res.video_id) {
         setVideoId(res.video_id);
         const ws = new WebSocket(`ws://localhost:8000/api/ws/progress/${res.video_id}`);

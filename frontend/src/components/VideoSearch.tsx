@@ -3,9 +3,10 @@ import { searchFrames, STATIC_BASE } from '../api';
 
 interface VideoSearchProps {
   onResult?: (results: any[]) => void;
+  videoId?: string;
 }
 
-const VideoSearch: React.FC<VideoSearchProps> = ({ onResult }) => {
+const VideoSearch: React.FC<VideoSearchProps> = ({ onResult, videoId }) => {
   const [search, setSearch] = useState('');
   const [results, setResults] = useState<any[]>([]);
   const [searching, setSearching] = useState(false);
@@ -24,7 +25,8 @@ const VideoSearch: React.FC<VideoSearchProps> = ({ onResult }) => {
   const handleSearch = async () => {
     setSearching(true);
     try {
-      const res = await searchFrames(search);
+      // Pass videoId to searchFrames if present
+      const res = await searchFrames(search, videoId);
       setResults(res.results);
       setSelectedIdx(0);
       if (onResult) onResult(res.results);
@@ -47,7 +49,7 @@ const VideoSearch: React.FC<VideoSearchProps> = ({ onResult }) => {
           type="text"
           value={search}
           onChange={e => setSearch(e.target.value)}
-          placeholder="Search video frames (natural language)"
+          placeholder={videoId ? `Search in this video` : "Search video frames (natural language)"}
           style={{ width: 320, marginRight: 8 }}
         />
         <button onClick={handleSearch} disabled={searching || !search}>

@@ -1,9 +1,7 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { searchFrames } from '../api';
+import React, { useEffect } from 'react';
 import { useVideoContext } from '../context/VideoContext';
 import VideoProgress from './VideoProgress';
 import VideoUpload from './VideoUpload';
-import { STATIC_BASE } from '../api';
 import VideoSearch from './VideoSearch';
 
 const VideoList: React.FC = () => {

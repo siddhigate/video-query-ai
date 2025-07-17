@@ -38,9 +38,13 @@ export async function updateVideo(video_id: string, video_name: string) {
   return res.json();
 }
 
-export async function searchFrames(query: string) {
-  const res = await fetch(`${API_BASE}/search?query=${encodeURIComponent(query)}`, {
+export async function searchFrames(query: string, videoId?: string) {
+  const body: any = { query };
+  if (videoId) body.video_ids = [videoId];
+  const res = await fetch(`${API_BASE}/search`, {
     method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
   });
   if (!res.ok) throw new Error('Failed to search');
   return res.json();
