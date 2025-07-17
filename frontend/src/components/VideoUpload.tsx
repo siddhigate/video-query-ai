@@ -8,6 +8,7 @@ type VideoUploadProps = {
 const VideoUpload: React.FC<VideoUploadProps> = ({ onUpload }) => {
   const [uploading, setUploading] = useState(false);
   const [done, setDone] = useState(false);
+  const [progress, setProgress] = useState<string[]>([]);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const handleUpload = async () => {
@@ -15,10 +16,21 @@ const VideoUpload: React.FC<VideoUploadProps> = ({ onUpload }) => {
     if (!file) return;
     setUploading(true);
     setDone(false);
+    setProgress([]);
     try {
-      await uploadVideo(file);
+      const res = await uploadVideo(file);
       setDone(true);
       onUpload();
+
+      if (res.video_id) {
+        const ws = new WebSocket(`ws://localhost:8000/ws/progress/${res.video_id}`);
+        ws.onmessage = (event) => {
+          setProgress((prev) => [...prev, event.data]);
+        };
+        ws.onclose = () => {
+          setProgress((prev) => [...prev, 'WebSocket closed']);
+        };
+      }
     } catch (e) {
       alert('Upload failed');
     } finally {
@@ -35,6 +47,16 @@ const VideoUpload: React.FC<VideoUploadProps> = ({ onUpload }) => {
       {done && (
         <div style={{ marginTop: 12, color: 'green' }}>
           Done!
+        </div>
+      )}
+      {progress.length > 0 && (
+        <div style={{ marginTop: 12 }}>
+          <b>Processing Progress:</b>
+          <ul>
+            {progress.map((msg, idx) => (
+              <li key={idx}>{msg}</li>
+            ))}
+          </ul>
         </div>
       )}
     </div>
