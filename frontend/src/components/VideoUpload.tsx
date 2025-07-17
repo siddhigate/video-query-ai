@@ -1,5 +1,5 @@
 import React, { useRef, useState } from 'react';
-import { STATIC_BASE, uploadVideo } from '../api';
+import { uploadVideo } from '../api';
 import VideoProgressFrames from './VideoProgressFrames';
 
 type VideoUploadProps = {

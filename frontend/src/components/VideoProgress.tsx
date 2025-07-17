@@ -1,5 +1,4 @@
 import React, { useEffect } from 'react';
-import { STATIC_BASE } from '../api';
 import { useVideoContext } from '../context/VideoContext';
 import VideoProgressFrames from './VideoProgressFrames';
 

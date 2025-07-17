@@ -55,6 +55,23 @@ def generate_description(frame_path: str) -> str:
                 continue
     return description.strip()
 
+def get_video_fps_and_duration(video_path: str):
+    """Return (fps, duration) for the video using ffprobe."""
+    import json as pyjson
+    cmd = [
+        'ffprobe', '-v', 'error', '-select_streams', 'v:0',
+        '-show_entries', 'stream=avg_frame_rate,duration',
+        '-of', 'json', video_path
+    ]
+    result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
+    info = pyjson.loads(result.stdout)
+    stream = info['streams'][0]
+    # avg_frame_rate is like '30/1'
+    num, denom = map(int, stream['avg_frame_rate'].split('/'))
+    fps = num / denom if denom != 0 else 1
+    duration = float(stream['duration'])
+    return fps, duration
+
 def extract_frames(video_path: str, output_dir: str, fps: int = 1) -> List[str]:
     os.makedirs(output_dir, exist_ok=True)
     frame_pattern = os.path.join(output_dir, "frame_%05d.jpg")
@@ -67,14 +84,14 @@ def extract_frames(video_path: str, output_dir: str, fps: int = 1) -> List[str]:
     ])
     return frames
 
-def process_frame(frame_path: str, video_id: str, frame_idx: int) -> Dict:
+def process_frame(frame_path: str, video_id: str, frame_idx: int, timestamp: float) -> Dict:
     logging.info(f"Processing frame {frame_idx}: {frame_path}")
     from .valkey_pubsub import publish_progress_sync
     frame_url = get_frame_url(video_id, frame_idx)
     add_frame_in_process(video_id, frame_idx)
     publish_progress_sync(video_id, json.dumps({
         "type": "frame_processing",
-        "data": {"frame_idx": frame_idx, "frame_url": frame_url}
+        "data": {"frame_idx": frame_idx, "frame_url": frame_url, "timestamp": timestamp}
     }))
     description = generate_description(frame_path)
     vector = get_embedding(description)
@@ -82,7 +99,8 @@ def process_frame(frame_path: str, video_id: str, frame_idx: int) -> Dict:
         "video_id": video_id,
         "frame_idx": frame_idx,
         "frame_path": frame_path,
-        "description": description
+        "description": description,
+        "timestamp": timestamp
     }
     collection.add(
         embeddings=[vector],
@@ -93,7 +111,7 @@ def process_frame(frame_path: str, video_id: str, frame_idx: int) -> Dict:
     add_frame_done(video_id, frame_idx)
     publish_progress_sync(video_id, json.dumps({
         "type": "frame_processed",
-        "data": {"frame_idx": frame_idx, "frame_url": frame_url, "description": description}
+        "data": {"frame_idx": frame_idx, "frame_url": frame_url, "description": description, "timestamp": timestamp}
     }))
     return metadata
 
@@ -102,6 +120,8 @@ def process_video_frames(video_id: str, video_path: str, fps: int = 1, max_worke
     from .valkey_pubsub import publish_progress_sync
     video_db = VideoDB()
     frame_output_dir = os.path.join(FRAMES_DIR, video_id)
+    # Get FPS and duration
+    actual_fps, duration = get_video_fps_and_duration(video_path)
     frames = extract_frames(video_path, frame_output_dir, fps=fps)
     logging.info(f"Extracted {len(frames)} frames from {video_path}")
     # Update ChromaDB with frame count and processing state
@@ -112,8 +132,10 @@ def process_video_frames(video_id: str, video_path: str, fps: int = 1, max_worke
     }))
     results = []
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        # Calculate timestamp for each frame
+        timestamps = [(i / fps) for i in range(len(frames))]
         future_to_idx = {
-            executor.submit(process_frame, frame, video_id, idx): idx
+            executor.submit(process_frame, frame, video_id, idx, timestamps[idx]): idx
             for idx, frame in enumerate(frames)
         }
         for future in as_completed(future_to_idx):

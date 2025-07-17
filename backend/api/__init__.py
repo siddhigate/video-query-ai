@@ -133,6 +133,7 @@ def search_frames(query: str = Query(...)):
         matches.append({
             "video_id": meta["video_id"],
             "frame_idx": meta["frame_idx"],
-            "description": meta["description"]
+            "description": meta["description"],
+            "timestamp": meta.get("timestamp")
         })
     return {"results": matches} 
