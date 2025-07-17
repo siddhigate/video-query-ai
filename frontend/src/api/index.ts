@@ -35,4 +35,12 @@ export async function updateVideo(video_id: string, video_name: string) {
   });
   if (!res.ok) throw new Error('Failed to update video');
   return res.json();
+}
+
+export async function searchFrames(query: string) {
+  const res = await fetch(`http://localhost:8000/search?query=${encodeURIComponent(query)}`, {
+    method: 'POST',
+  });
+  if (!res.ok) throw new Error('Failed to search');
+  return res.json();
 } 

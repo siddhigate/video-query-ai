@@ -1,4 +1,4 @@
-from fastapi import APIRouter, UploadFile, File, HTTPException, Body, BackgroundTasks, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, UploadFile, File, HTTPException, Body, BackgroundTasks, WebSocket, WebSocketDisconnect, Query
 from fastapi.responses import JSONResponse
 from db import VideoDB
 from video import VideoStorage
@@ -8,6 +8,7 @@ import redis.asyncio as aioredis
 import shutil
 import os
 from video.frame_processing import FRAMES_DIR, collection as frame_collection
+from chromadb.utils import embedding_functions
 
 router = APIRouter()
 video_db = VideoDB()
@@ -84,3 +85,23 @@ async def websocket_progress(websocket: WebSocket, video_id: str):
         await pubsub.unsubscribe(channel)
         await pubsub.close()
         await redis.close() 
+
+@router.post("/search")
+def search_frames(query: str = Query(...)):
+    # Vectorize the query
+    ef = embedding_functions.DefaultEmbeddingFunction()
+    query_vec = ef([query])[0]
+    # Search ChromaDB for similar frames
+    results = frame_collection.query(
+        query_embeddings=[query_vec],
+        n_results=10,
+        include=["metadatas"]
+    )
+    matches = []
+    for meta in results.get("metadatas", [[]])[0]:
+        matches.append({
+            "video_id": meta["video_id"],
+            "frame_idx": meta["frame_idx"],
+            "description": meta["description"]
+        })
+    return {"results": matches} 
