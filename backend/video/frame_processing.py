@@ -8,9 +8,11 @@ import requests
 import chromadb
 from chromadb.utils import embedding_functions
 import asyncio
-from .valkey_pubsub import publish_progress
+from .valkey_pubsub import publish_progress, add_frame_in_process, add_frame_done
 import base64
 import json
+from db import VideoDB
+from .utils import get_frame_url
 
 
 DATA_DIR = ".data"
@@ -53,11 +55,6 @@ def generate_description(frame_path: str) -> str:
                 continue
     return description.strip()
 
-def get_frame_url(video_id: str, frame_idx: int) -> str:
-    # Frame files are named frame_00001.jpg, etc.
-    frame_name = f"frame_{frame_idx+1:05d}.jpg"
-    return f"/frames/{video_id}/{frame_name}"
-
 def extract_frames(video_path: str, output_dir: str, fps: int = 1) -> List[str]:
     os.makedirs(output_dir, exist_ok=True)
     frame_pattern = os.path.join(output_dir, "frame_%05d.jpg")
@@ -72,9 +69,9 @@ def extract_frames(video_path: str, output_dir: str, fps: int = 1) -> List[str]:
 
 def process_frame(frame_path: str, video_id: str, frame_idx: int) -> Dict:
     logging.info(f"Processing frame {frame_idx}: {frame_path}")
-    # Publish start of frame processing (blurred)
     from .valkey_pubsub import publish_progress_sync
     frame_url = get_frame_url(video_id, frame_idx)
+    add_frame_in_process(video_id, frame_idx)
     publish_progress_sync(video_id, json.dumps({
         "type": "frame_processing",
         "data": {"frame_idx": frame_idx, "frame_url": frame_url}
@@ -93,7 +90,7 @@ def process_frame(frame_path: str, video_id: str, frame_idx: int) -> Dict:
         ids=[f"{video_id}_frame_{frame_idx}"]
     )
     logging.info(f"Stored vector for frame {frame_idx}")
-    # Publish completion of frame processing (unblurred)
+    add_frame_done(video_id, frame_idx)
     publish_progress_sync(video_id, json.dumps({
         "type": "frame_processed",
         "data": {"frame_idx": frame_idx, "frame_url": frame_url, "description": description}
@@ -101,11 +98,14 @@ def process_frame(frame_path: str, video_id: str, frame_idx: int) -> Dict:
     return metadata
 
 def process_video_frames(video_id: str, video_path: str, fps: int = 1, max_workers: int = 4):
+    import json
     from .valkey_pubsub import publish_progress_sync
+    video_db = VideoDB()
     frame_output_dir = os.path.join(FRAMES_DIR, video_id)
     frames = extract_frames(video_path, frame_output_dir, fps=fps)
     logging.info(f"Extracted {len(frames)} frames from {video_path}")
-    # Publish total frame count
+    # Update ChromaDB with frame count and processing state
+    video_db.update_processing_state(video_id, processing_state='processing', frame_count=len(frames))
     publish_progress_sync(video_id, json.dumps({
         "type": "frames_extracted",
         "data": {"frame_count": len(frames), "video_id": video_id}
@@ -127,6 +127,7 @@ def process_video_frames(video_id: str, video_path: str, fps: int = 1, max_worke
                     "type": "frame_error",
                     "data": {"frame_idx": idx, "error": str(e)}
                 }))
+    video_db.update_processing_state(video_id, processing_state='success')
     publish_progress_sync(video_id, json.dumps({
         "type": "all_frames_processed",
         "data": {"video_id": video_id}

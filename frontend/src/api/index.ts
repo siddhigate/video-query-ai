@@ -39,9 +39,23 @@ export async function updateVideo(video_id: string, video_name: string) {
 }
 
 export async function searchFrames(query: string) {
-  const res = await fetch(`http://localhost:8000/search?query=${encodeURIComponent(query)}`, {
+  const res = await fetch(`${API_BASE}/search?query=${encodeURIComponent(query)}`, {
     method: 'POST',
   });
   if (!res.ok) throw new Error('Failed to search');
   return res.json();
+}
+
+export async function getProgress(ws: WebSocket): Promise<any> {
+  return new Promise((resolve) => {
+    ws.onmessage = (event) => {
+      try {
+        const msg = JSON.parse(event.data);
+        if (msg.type === 'progress_state') {
+          resolve(msg.data);
+        }
+      } catch {}
+    };
+    ws.send(JSON.stringify({ type: 'get_progress' }));
+  });
 } 

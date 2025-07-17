@@ -1,69 +1,82 @@
-import { createContext, useReducer, useContext } from 'react';
+import  { createContext, useReducer, useContext } from 'react';
 import type { ReactNode, Dispatch } from 'react';
 
-type Video = {
+export type Video = {
   video_id: string;
   video_name: string;
   created_at: string;
   updated_at: string;
+  processing_state?: string;
+  frame_count?: number;
 };
 
-type State = {
+export type VideoProgress = {
+  frameCount: number;
+  frameStatus: { [idx: number]: { status: 'pending' | 'processing' | 'done', url?: string } };
+  showPlayer?: boolean;
+};
+
+export type VideoState = {
   videos: Video[];
-  loading: boolean;
-  error: string | null;
+  progressVideoId: string | null;
+  progressState: VideoProgress | null;
 };
 
-type Action =
-  | { type: 'SET_VIDEOS'; payload: Video[] }
-  | { type: 'SET_LOADING'; payload: boolean }
-  | { type: 'SET_ERROR'; payload: string | null };
+export type VideoAction =
+  | { type: 'SET_VIDEOS'; videos: Video[] }
+  | { type: 'UPDATE_VIDEO_STATE'; video_id: string; processing_state: string }
+  | { type: 'UPDATE_VIDEO_PROGRESS'; progress: VideoProgress }
+  | { type: 'SET_PROGRESS_VIDEO'; video_id: string; progress: VideoProgress }
+  | { type: 'CLEAR_PROGRESS_VIDEO' };
 
-const initialState: State = {
+const initialState: VideoState = {
   videos: [],
-  loading: false,
-  error: null,
+  progressVideoId: null,
+  progressState: null,
 };
 
-function videoReducer(state: State, action: Action): State {
+function videoReducer(state: VideoState, action: VideoAction): VideoState {
   switch (action.type) {
     case 'SET_VIDEOS':
-      return { ...state, videos: action.payload };
-    case 'SET_LOADING':
-      return { ...state, loading: action.payload };
-    case 'SET_ERROR':
-      return { ...state, error: action.payload };
+      return { ...state, videos: action.videos };
+    case 'UPDATE_VIDEO_STATE':
+      return {
+        ...state,
+        videos: state.videos.map(v =>
+          v.video_id === action.video_id ? { ...v, processing_state: action.processing_state } : v
+        ),
+      };
+    case 'UPDATE_VIDEO_PROGRESS': {
+      // Deep merge frameStatus for robust websocket event handling
+      const prev = state.progressState || { frameCount: 0, frameStatus: {} };
+      const next = action.progress || {};
+      return {
+        ...state,
+        progressState: {
+          frameCount: next.frameCount !== undefined ? next.frameCount : prev.frameCount,
+          frameStatus: { ...prev.frameStatus, ...(next.frameStatus || {}) },
+          showPlayer: next.showPlayer !== undefined ? next.showPlayer : prev.showPlayer,
+        },
+      };
+    }
+    case 'SET_PROGRESS_VIDEO':
+      return { ...state, progressVideoId: action.video_id, progressState: action.progress };
+    case 'CLEAR_PROGRESS_VIDEO':
+      return { ...state, progressVideoId: null, progressState: null };
     default:
       return state;
   }
 }
 
-const VideoStateContext = createContext<State | undefined>(undefined);
-const VideoDispatchContext = createContext<Dispatch<Action> | undefined>(undefined);
+const VideoContext = createContext<{ state: VideoState; dispatch: Dispatch<VideoAction> } | undefined>(undefined);
 
-export function VideoProvider({ children }: { children: ReactNode }) {
+export const VideoProvider = ({ children }: { children: ReactNode }) => {
   const [state, dispatch] = useReducer(videoReducer, initialState);
-  return (
-    <VideoStateContext.Provider value={state}>
-      <VideoDispatchContext.Provider value={dispatch}>
-        {children}
-      </VideoDispatchContext.Provider>
-    </VideoStateContext.Provider>
-  );
-}
+  return <VideoContext.Provider value={{ state, dispatch }}>{children}</VideoContext.Provider>;
+};
 
-export function useVideoState() {
-  const context = useContext(VideoStateContext);
-  if (context === undefined) {
-    throw new Error('useVideoState must be used within a VideoProvider');
-  }
-  return context;
-}
-
-export function useVideoDispatch() {
-  const context = useContext(VideoDispatchContext);
-  if (context === undefined) {
-    throw new Error('useVideoDispatch must be used within a VideoProvider');
-  }
-  return context;
+export function useVideoContext() {
+  const ctx = useContext(VideoContext);
+  if (!ctx) throw new Error('useVideoContext must be used within VideoProvider');
+  return ctx;
 } 

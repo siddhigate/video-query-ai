@@ -1,24 +1,24 @@
-import React, { useState } from 'react';
-import VideoRow from './VideoRow';
+import React, { useState, useEffect } from 'react';
 import { searchFrames } from '../api';
+import { useVideoContext } from '../context/VideoContext';
+import VideoProgress from './VideoProgress';
+import VideoUpload from './VideoUpload';
 
-type Video = {
-  video_id: string;
-  video_name: string;
-  created_at: string;
-  updated_at: string;
-};
-
-type VideoListProps = {
-  videos: Video[];
-  onDelete: () => void;
-  onUpdate: () => void;
-};
-
-const VideoList: React.FC<VideoListProps> = ({ videos, onDelete, onUpdate }) => {
+const VideoList: React.FC = () => {
+  const { state, dispatch } = useVideoContext();
+  const { videos, progressVideoId } = state;
   const [search, setSearch] = useState('');
   const [results, setResults] = useState<any[]>([]);
   const [searching, setSearching] = useState(false);
+
+  useEffect(() => {
+    async function fetchVideos() {
+      const res = await fetch('/api/videos');
+      const data = await res.json();
+      dispatch({ type: 'SET_VIDEOS', videos: data });
+    }
+    fetchVideos();
+  }, [dispatch]);
 
   const handleSearch = async () => {
     setSearching(true);
@@ -32,11 +32,26 @@ const VideoList: React.FC<VideoListProps> = ({ videos, onDelete, onUpdate }) => 
     }
   };
 
-  if (videos.length === 0) {
-    return <div>No videos uploaded yet.</div>;
-  }
+  const handleViewProgress = (video: any) => {
+    dispatch({
+      type: 'SET_PROGRESS_VIDEO',
+      video_id: video.video_id,
+      progress: {
+        frameCount: video.frame_count,
+        frameStatus: {},
+      },
+    });
+  };
+
+  const handleDelete = async (video_id: string) => {
+    await fetch(`/api/videos/${video_id}`, { method: 'DELETE' });
+    dispatch({ type: 'SET_VIDEOS', videos: videos.filter(v => v.video_id !== video_id) });
+  };
+
+
   return (
     <div>
+      <VideoUpload onUpload={() => {}} />
       <div style={{ marginBottom: 16 }}>
         <input
           type="text"
@@ -69,15 +84,35 @@ const VideoList: React.FC<VideoListProps> = ({ videos, onDelete, onUpdate }) => 
             <th style={{ border: '1px solid #ccc', padding: 4 }}>Name</th>
             <th style={{ border: '1px solid #ccc', padding: 4 }}>Created</th>
             <th style={{ border: '1px solid #ccc', padding: 4 }}>Updated</th>
+            <th style={{ border: '1px solid #ccc', padding: 4 }}>State</th>
             <th style={{ border: '1px solid #ccc', padding: 4 }}>Actions</th>
           </tr>
         </thead>
         <tbody>
           {videos.map(video => (
-            <VideoRow key={video.video_id} video={video} onDelete={onDelete} onUpdate={onUpdate} />
+            <tr key={video.video_id}>
+              <td style={{ border: '1px solid #ccc', padding: 4 }}>{video.video_id}</td>
+              <td style={{ border: '1px solid #ccc', padding: 4 }}>{video.video_name}</td>
+              <td style={{ border: '1px solid #ccc', padding: 4 }}>{video.created_at}</td>
+              <td style={{ border: '1px solid #ccc', padding: 4 }}>{video.updated_at}</td>
+              <td style={{ border: '1px solid #ccc', padding: 4 }}>{video.processing_state || 'processing'}</td>
+              <td style={{ border: '1px solid #ccc', padding: 4 }}>
+                {video.processing_state === 'processing' && (
+                  <button onClick={() => handleViewProgress(video)}>View Progress</button>
+                )}
+                <button
+                  style={{ color: 'red', marginLeft: 8 }}
+                  disabled={video.processing_state === 'processing'}
+                  onClick={() => handleDelete(video.video_id)}
+                >
+                  Delete
+                </button>
+              </td>
+            </tr>
           ))}
         </tbody>
       </table>
+      {progressVideoId && <VideoProgress videoId={progressVideoId} />}
     </div>
   );
 };

@@ -1,5 +1,6 @@
 import React, { useRef, useState } from 'react';
 import { STATIC_BASE, uploadVideo } from '../api';
+import VideoProgressFrames from './VideoProgressFrames';
 
 type VideoUploadProps = {
   onUpload: () => void;
@@ -74,31 +75,13 @@ const VideoUpload: React.FC<VideoUploadProps> = ({ onUpload }) => {
           Done!
         </div>
       )}
-      {frameCount > 0 && !showPlayer && (
-        <div style={{ marginTop: 16, display: 'flex', gap: 8 }}>
-          {[...Array(frameCount)].map((_, idx) => {
-            const status = frameStatus[idx]?.status;
-            const url = frameStatus[idx]?.url;
-            if (!status) {
-              // shimmer
-              return <div key={idx} style={{ width: 80, height: 60, background: '#eee', borderRadius: 4, animation: 'shimmer 1.5s infinite', filter: 'blur(2px)' }} />;
-            }
-            if (status === 'processing') {
-              // blurred image
-              return <img key={idx} src={`${STATIC_BASE}${url}`} alt='' style={{ width: 80, height: 60, borderRadius: 4, filter: 'blur(6px) grayscale(0.7)' }} />;
-            }
-            if (status === 'done') {
-              // unblurred image
-              return <img key={idx} src={`${STATIC_BASE}${url}`} alt='' style={{ width: 80, height: 60, borderRadius: 4 }} />;
-            }
-            return null;
-          })}
-        </div>
-      )}
-      {showPlayer && videoId && (
-        <div style={{ marginTop: 24 }}>
-          <video controls width={480} src={`${STATIC_BASE}/videos/${videoId}/video.mp4`} />
-        </div>
+      {frameCount > 0 && (
+        <VideoProgressFrames
+          frameCount={frameCount}
+          frameStatus={frameStatus}
+          showPlayer={showPlayer}
+          videoId={videoId || undefined}
+        />
       )}
       {toast && (
         <div style={{ position: 'fixed', top: 24, right: 24, background: '#222', color: '#fff', padding: 12, borderRadius: 8, zIndex: 1000 }}>

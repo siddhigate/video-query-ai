@@ -9,6 +9,24 @@ import shutil
 import os
 from video.frame_processing import FRAMES_DIR, collection as frame_collection
 from chromadb.utils import embedding_functions
+import json
+from video.valkey_pubsub import get_progress_state
+
+class WebSocketManager:
+    def __init__(self):
+        self.active_connections = {}
+    async def connect(self, video_id, websocket):
+        await websocket.accept()
+        self.active_connections[video_id] = websocket
+    def disconnect(self, video_id):
+        if video_id in self.active_connections:
+            del self.active_connections[video_id]
+    async def send_json(self, video_id, data):
+        ws = self.active_connections.get(video_id)
+        if ws:
+            await ws.send_text(json.dumps(data))
+
+ws_manager = WebSocketManager()
 
 router = APIRouter()
 video_db = VideoDB()
@@ -68,7 +86,7 @@ def update_video(video_id: str, video_name: str = Body(..., embed=True)):
 
 @router.websocket("/ws/progress/{video_id}")
 async def websocket_progress(websocket: WebSocket, video_id: str):
-    await websocket.accept()
+    await ws_manager.connect(video_id, websocket)
     redis = aioredis.from_url(VALKEY_URL)
     pubsub = redis.pubsub()
     channel = f"progress:{video_id}"
@@ -78,9 +96,22 @@ async def websocket_progress(websocket: WebSocket, video_id: str):
             message = await pubsub.get_message(ignore_subscribe_messages=True, timeout=10.0)
             if message and message["type"] == "message":
                 await websocket.send_text(message["data"].decode())
+            # Check for frontend request for progress
+            try:
+                data = await asyncio.wait_for(websocket.receive_text(), timeout=0.1)
+                if data:
+                    try:
+                        msg = json.loads(data)
+                        if msg.get("type") == "get_progress":
+                            progress = get_progress_state(video_id)
+                            await ws_manager.send_json(video_id, {"type": "progress_state", "data": progress})
+                    except Exception:
+                        pass
+            except asyncio.TimeoutError:
+                pass
             await asyncio.sleep(0.1)
     except WebSocketDisconnect:
-        pass
+        ws_manager.disconnect(video_id)
     finally:
         await pubsub.unsubscribe(channel)
         await pubsub.close()
