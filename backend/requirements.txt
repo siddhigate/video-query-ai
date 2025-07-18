@@ -6,3 +6,4 @@ requests
 redis 
 pydantic-settings
 pydantic 
+rq 
