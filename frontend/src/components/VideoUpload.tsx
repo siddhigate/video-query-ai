@@ -10,23 +10,28 @@ type VideoUploadProps = {
 const VideoUpload: React.FC<VideoUploadProps> = ({ onUpload }) => {
   const [uploading, setUploading] = useState(false);
   const [done, setDone] = useState(false);
-  const [frameCount, setFrameCount] = useState(0);
-  const [frameStatus, setFrameStatus] = useState<{ [idx: number]: { status: 'pending' | 'processing' | 'done', url?: string, description?: string } }>({});
-  const [showPlayer, setShowPlayer] = useState(false);
-  const [videoId, setVideoId] = useState<string | null>(null);
   const [toast, setToast] = useState('');
+  const [dragActive, setDragActive] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const { state, dispatch } = useVideoContext();
 
-  const handleUpload = async () => {
+  const handleButtonClick = () => {
+    if (!uploading) fileInputRef.current?.click();
+  };
+
+  const handleFileChange = async () => {
     const file = fileInputRef.current?.files?.[0];
     if (!file) return;
+    await uploadFile(file);
+  };
+
+  const uploadFile = async (file: File) => {
+    if (!file.type.startsWith('video/')) {
+      alert('Please upload a video file.');
+      return;
+    }
     setUploading(true);
     setDone(false);
-    setFrameCount(0);
-    setFrameStatus({});
-    setShowPlayer(false);
-    setVideoId(null);
     setToast('');
     try {
       const res = await uploadVideo(file);
@@ -46,34 +51,13 @@ const VideoUpload: React.FC<VideoUploadProps> = ({ onUpload }) => {
           }
         ]
       });
+      // Set progress video in context with empty progress state
+      dispatch({
+        type: 'SET_PROGRESS_VIDEO',
+        video_id: res.video_id,
+        progress: { frameCount: 0, frameStatus: {} }
+      });
       onUpload(res.video_id); // pass videoId to parent
-      if (res.video_id) {
-        setVideoId(res.video_id);
-        const ws = new WebSocket(`ws://localhost:8000/api/ws/progress/${res.video_id}`);
-        ws.onmessage = (event) => {
-          let msg;
-          try { msg = JSON.parse(event.data); } catch { return; }
-          if (!msg.type) return;
-          if (msg.type === 'frames_extracted') {
-            setFrameCount(msg.data.frame_count);
-            setFrameStatus({});
-          } else if (msg.type === 'frame_processing') {
-            setFrameStatus(prev => ({
-              ...prev,
-              [msg.data.frame_idx]: { status: 'processing', url: msg.data.frame_url }
-            }));
-          } else if (msg.type === 'frame_processed') {
-            setFrameStatus(prev => ({
-              ...prev,
-              [msg.data.frame_idx]: { status: 'done', url: msg.data.frame_url, description: msg.data.description }
-            }));
-          } else if (msg.type === 'all_frames_processed') {
-            setShowPlayer(true);
-            setToast('Video processing successful!');
-            setTimeout(() => setToast(''), 3000);
-          }
-        };
-      }
     } catch (e) {
       alert('Upload failed');
     } finally {
@@ -81,10 +65,71 @@ const VideoUpload: React.FC<VideoUploadProps> = ({ onUpload }) => {
     }
   };
 
+  // Drag and drop handlers
+  const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!uploading) setDragActive(true);
+  };
+  const handleDragLeave = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragActive(false);
+  };
+  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragActive(false);
+    if (uploading) return;
+    const file = e.dataTransfer.files && e.dataTransfer.files[0];
+    if (file) {
+      uploadFile(file);
+    }
+  };
+
   return (
-    <div style={{ marginTop: 24 }}>
-      <input type="file" accept="video/*" ref={fileInputRef} disabled={uploading} />
-      <button onClick={handleUpload} disabled={uploading} style={{ marginLeft: 8 }}>
+    <div
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+      style={{
+        width: '100%',
+        minHeight: 80,
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        outline: dragActive ? '2px dashed var(--clr-primary)' : 'none',
+        borderRadius: 12,
+        background: dragActive ? '#ffe6f0' : 'transparent',
+        transition: 'outline 0.2s, background 0.2s',
+      }}
+    >
+      <input
+        type="file"
+        accept="video/*"
+        ref={fileInputRef}
+        disabled={uploading}
+        style={{ display: 'none' }}
+        onChange={handleFileChange}
+      />
+      <button
+        onClick={handleButtonClick}
+        disabled={uploading}
+        style={{
+          background: 'var(--clr-primary)',
+          color: 'var(--clr-light)',
+          border: 'none',
+          borderRadius: 24,
+          fontWeight: 600,
+          fontSize: 16,
+          cursor: uploading ? 'not-allowed' : 'pointer',
+          padding: '0.75rem 1.5rem',
+          marginLeft: 8,
+          boxShadow: '0 2px 4px rgba(0,0,0,0.04)',
+          transition: 'background 0.2s',
+        }}
+      >
         {uploading ? 'Uploading...' : 'Upload Video'}
       </button>
       {done && (
@@ -92,16 +137,8 @@ const VideoUpload: React.FC<VideoUploadProps> = ({ onUpload }) => {
           Done!
         </div>
       )}
-      {frameCount > 0 && (
-        <VideoProgressFrames
-          frameCount={frameCount}
-          frameStatus={frameStatus}
-          showPlayer={showPlayer}
-          videoId={videoId || undefined}
-        />
-      )}
       {toast && (
-        <div style={{ position: 'fixed', top: 24, right: 24, background: '#222', color: '#fff', padding: 12, borderRadius: 8, zIndex: 1000 }}>
+        <div style={{ position: 'fixed', top: 24, right: 24, background: '#fffaf5', color: 'var(--clr-dark)', padding: 12, borderRadius: 8, zIndex: 1000, boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}>
           {toast}
         </div>
       )}

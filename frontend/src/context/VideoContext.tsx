@@ -14,6 +14,7 @@ export type VideoProgress = {
   frameCount: number;
   frameStatus: { [idx: number]: { status: 'pending' | 'processing' | 'done', url?: string } };
   showPlayer?: boolean;
+  firstFrameUrl?: string;
 };
 
 export type VideoState = {
@@ -56,6 +57,7 @@ function videoReducer(state: VideoState, action: VideoAction): VideoState {
           frameCount: next.frameCount !== undefined ? next.frameCount : prev.frameCount,
           frameStatus: { ...prev.frameStatus, ...(next.frameStatus || {}) },
           showPlayer: next.showPlayer !== undefined ? next.showPlayer : prev.showPlayer,
+          firstFrameUrl: next.firstFrameUrl !== undefined ? next.firstFrameUrl : prev.firstFrameUrl,
         },
       };
     }

@@ -3,6 +3,7 @@ import { useVideoContext } from '../context/VideoContext';
 import VideoProgress from './VideoProgress';
 import VideoUpload from './VideoUpload';
 import VideoSearch from './VideoSearch';
+import styles from './VideoList.module.sass';
 
 const VideoList: React.FC = () => {
   const { state, dispatch } = useVideoContext();
@@ -37,39 +38,36 @@ const VideoList: React.FC = () => {
     <div>
       <VideoUpload onUpload={() => {}} />
       <VideoSearch />
-      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+      <table className={styles.table}>
         <thead>
           <tr>
-            <th style={{ border: '1px solid #ccc', padding: 4 }}>ID</th>
-            <th style={{ border: '1px solid #ccc', padding: 4 }}>Name</th>
-            <th style={{ border: '1px solid #ccc', padding: 4 }}>Created</th>
-            <th style={{ border: '1px solid #ccc', padding: 4 }}>Updated</th>
-            <th style={{ border: '1px solid #ccc', padding: 4 }}>State</th>
-            <th style={{ border: '1px solid #ccc', padding: 4 }}>Actions</th>
+            <th className={styles.th}>ID</th>
+            <th className={styles.th}>Name</th>
+            <th className={styles.th}>Created</th>
+            <th className={styles.th}>Updated</th>
+            <th className={styles.th}>State</th>
+            <th className={styles.th}>Actions</th>
           </tr>
         </thead>
         <tbody>
-          {videos.map(video => (
-            <tr key={video.video_id}>
-              <td style={{ border: '1px solid #ccc', padding: 4 }}>{video.video_id}</td>
-              <td style={{ border: '1px solid #ccc', padding: 4 }}>{video.video_name}</td>
-              <td style={{ border: '1px solid #ccc', padding: 4 }}>{video.created_at}</td>
-              <td style={{ border: '1px solid #ccc', padding: 4 }}>{video.updated_at}</td>
-              <td style={{ border: '1px solid #ccc', padding: 4 }}>{video.processing_state || 'processing'}</td>
-              <td style={{ border: '1px solid #ccc', padding: 4 }}>
-                {video.processing_state === 'processing' && (
-                  <button onClick={() => handleViewProgress(video)}>View Progress</button>
-                )}
-                <button
-                  style={{ color: 'red', marginLeft: 8 }}
-                  disabled={video.processing_state === 'processing'}
-                  onClick={() => handleDelete(video.video_id)}
-                >
-                  Delete
-                </button>
-              </td>
-            </tr>
-          ))}
+          {videos
+            .slice()
+            .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+            .map(video => (
+              <tr key={video.video_id}>
+                <td className={styles.td}>{video.video_id}</td>
+                <td className={styles.td}>{video.video_name}</td>
+                <td className={styles.td}>{video.created_at}</td>
+                <td className={styles.td}>{video.updated_at}</td>
+                <td className={styles.td}>{video.processing_state || 'processing'}</td>
+                <td className={styles.td}>
+                  {video.processing_state === 'processing' && (
+                    <button className={styles.viewButton} onClick={() => handleViewProgress(video)}>View Progress</button>
+                  )}
+                  <button className={styles.deleteButton} onClick={() => handleDelete(video.video_id)}>Delete</button>
+                </td>
+              </tr>
+            ))}
         </tbody>
       </table>
       {progressVideoId && <VideoProgress videoId={progressVideoId} />}
