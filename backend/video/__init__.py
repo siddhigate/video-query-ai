@@ -1,15 +1,21 @@
 import os
 from datetime import datetime
+import re
 
 DATA_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".data"))
 UPLOAD_DIR = os.path.join(DATA_DIR, "uploaded_videos")
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
+def sanitize_video_id(video_id):
+    return re.sub(r'[: ]', '_', video_id)
+
 class VideoStorage:
-    def save_video(self, file):
+    def save_video(self, file, video_id=None):
         chunk_size = 1024 * 1024  # 1MB
         now = datetime.utcnow().isoformat()
-        video_id = f"{file.filename}-{now}"
+        if video_id is None:
+            raw_video_id = f"{file.filename}-{now}"
+            video_id = sanitize_video_id(raw_video_id)
         _, ext = os.path.splitext(file.filename)
         ext = ext if ext else ""
         video_folder = os.path.join(UPLOAD_DIR, video_id)

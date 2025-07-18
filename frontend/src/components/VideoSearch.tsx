@@ -153,6 +153,11 @@ const VideoSearch: React.FC<VideoSearchProps> = ({ onResult, videoId }) => {
                     alt={r.description}
                     style={{ width: 80, height: 60, borderRadius: 4, objectFit: 'cover', marginBottom: 4 }}
                   />
+                  {r.video_name && (
+                    <div style={{ fontSize: 11, color: '#666', maxWidth: 80, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', margin: '0 auto' }} title={r.video_name}>
+                      {r.video_name.length > 18 ? r.video_name.slice(0, 15) + '...' : r.video_name}
+                    </div>
+                  )}
                 </div>
               ))}
             </div>

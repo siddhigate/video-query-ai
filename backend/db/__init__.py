@@ -1,6 +1,9 @@
 import os
 import chromadb
 
+def sanitize_video_id(video_id: str) -> str:
+    return video_id.replace(":", "_").replace(" ", "_")
+
 DATA_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".data"))
 CHROMA_DIR = os.path.join(DATA_DIR, "chromadb")
 
@@ -10,6 +13,7 @@ class VideoDB:
         self.collection = self.client.get_or_create_collection("videos")
 
     def add_video(self, video_id, save_path, file_name, created_at, updated_at, processing_state='processing', frame_count=0):
+        video_id = sanitize_video_id(video_id)
         self.collection.add(
             documents=[save_path],
             metadatas=[{
@@ -42,20 +46,17 @@ class VideoDB:
         self.collection.delete(ids=[video_id])
 
     def update_video(self, video_id, **kwargs):
-        
         results = self.collection.get(ids=[video_id])
         if not results['metadatas']:
             raise ValueError('Video not found')
         meta = results['metadatas'][0]
-        
         meta.update(kwargs)
-
         self.collection.delete(ids=[video_id])
         self.collection.add(
             documents=results['documents'],
             metadatas=[meta],
             ids=[video_id]
-        ) 
+        )
 
     def update_processing_state(self, video_id, processing_state=None, frame_count=None):
         results = self.collection.get(ids=[video_id])
